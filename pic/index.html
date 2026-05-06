@@ -1,0 +1,341 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>PIC / Legolink Explainer - Visualizing the spans KV-cache tests</title>
+<link rel="stylesheet" href="style.css" />
+</head>
+<body>
+
+<header class="hero">
+  <div class="hero-inner">
+    <p class="eyebrow">vLLM · spans · Legolink</p>
+    <h1>PIC / Legolink<br/><span class="thin">visualized</span></h1>
+    <p class="lede">
+      An interactive walk-through of the six tests that pin down how
+      <em>position-invariant chunks</em>, <em>span boundaries</em>, and the
+      <em>Legolink gap policy</em> behave inside vLLM's V1 KV cache.
+    </p>
+    <div class="legend">
+      <span class="dot tok"></span> token
+      <span class="dot blk"></span> block (16 tokens)
+      <span class="dot pic"></span> PIC chunk
+      <span class="dot kv"></span> KV slot
+      <span class="dot recomp"></span> recomputed
+    </div>
+  </div>
+</header>
+
+<nav class="toc">
+  <ol>
+    <li><a href="#concepts">0 · concepts</a></li>
+    <li><a href="#t1">1 · pic_chunk_hash_invariant</a></li>
+    <li><a href="#t2">2 · span_boundary_resets_chain</a></li>
+    <li><a href="#t3">3 · same_chunk_across_requests</a></li>
+    <li><a href="#t4">4 · pic_spans_preserve_prefix_caching</a></li>
+    <li><a href="#t5">5 · partial_recompute_within_gap</a></li>
+    <li><a href="#t6">6 · ll_full_equals_fr</a></li>
+  </ol>
+</nav>
+
+<!-- =========================================================
+     SECTION 0 · concepts
+     ========================================================= -->
+<section id="concepts" class="step">
+  <div class="step-head">
+    <h2>0 · the four ideas you need</h2>
+    <p>Hover any term to highlight it across the page.</p>
+  </div>
+
+  <div class="concepts-grid">
+    <article class="concept" data-term="block">
+      <h3>block</h3>
+      <p>vLLM stores KV in fixed-size <strong>blocks</strong> of <code>BLOCK_SIZE = 16</code> tokens. A 64-token prompt is 4 blocks.</p>
+      <div id="concept-block"></div>
+    </article>
+
+    <article class="concept" data-term="pic">
+      <h3>PIC chunk</h3>
+      <p>A <strong>position-invariant chunk</strong>: a block whose hash is
+      computed <em>without</em> its parent. Same content → same hash, no matter
+      where it appears in the prompt.</p>
+      <div id="concept-pic"></div>
+    </article>
+
+    <article class="concept" data-term="span">
+      <h3>span_starts</h3>
+      <p>An array of token positions where the hash chain is <em>reset</em>.
+      Each entry marks the first block of a new PIC chunk.</p>
+      <div id="concept-span"></div>
+    </article>
+
+    <article class="concept" data-term="legolink">
+      <h3>Legolink (gap policy)</h3>
+      <p>On a prefix-cache hit, the <code>SpanAwareGapPolicy</code> opens a
+      <strong>gap interval</strong> that re-prefills tokens, overwriting the
+      cached K/V in place.</p>
+      <div id="concept-legolink"></div>
+    </article>
+  </div>
+</section>
+
+<!-- =========================================================
+     TEST 1 · test_pic_chunk_hash_invariant_across_positions
+     ========================================================= -->
+<section id="t1" class="step">
+  <div class="step-head">
+    <span class="ribbon">test 1 · structural + e2e</span>
+    <h2>same chunk, two positions, one hash</h2>
+    <p class="claim">
+      Structural: <code>test_pic_chunk_hash_invariant_across_positions</code> -
+      pins the hash function (no LLM).<br/>
+      E2E: <code>test_pic_chunk_hash_invariant_across_positions_e2e</code> -
+      warms up the chunk alone, then verifies the warmup K/V slot is hit
+      by two requests that place the chunk at different positions
+      (position 16 in req_A, position 48 in req_B).
+    </p>
+  </div>
+
+  <div class="explainer">
+    <p>
+      Request A places the chunk after a 1-block prefix (position 16).<br/>
+      Request B places the same chunk after a 3-block prefix (position 48).<br/>
+      Without PIC, the chunk's block hash would chain through different parents
+      and the two would differ. <strong>With <code>span_starts</code>,</strong>
+      the chunk's parent is dropped, so the hashes collide.
+    </p>
+  </div>
+
+  <div class="viz-wrap">
+    <div id="viz-t1"></div>
+    <div class="controls">
+      <button data-action="t1-toggle">toggle PIC on / off</button>
+    </div>
+    <div id="viz-t1-state" class="state"></div>
+  </div>
+</section>
+
+<!-- =========================================================
+     TEST 2 · test_span_boundary_resets_block_hash_chain_no_recompute
+     ========================================================= -->
+<section id="t2" class="step">
+  <div class="step-head">
+    <span class="ribbon">test 2 · e2e · with warmup</span>
+    <h2>a span boundary <em>cuts</em> the hash chain</h2>
+    <p class="claim"><code>test_span_boundary_resets_block_hash_chain_e2e</code><br/>
+      Warm up a chunk's tokens alone, then send a 64-token prompt two ways:
+      baseline (no <code>span_starts</code>) and marked (<code>span_starts=[32]</code>).
+      Only the marked run can hit the warmup slot for block 2 - because only
+      its hash chain is reset to <code>NONE_HASH</code> at the span boundary.
+    </p>
+  </div>
+
+  <div class="explainer">
+    <p>
+      The same 64 tokens are hashed twice: once as a baseline, once with
+      <code>span_starts=[32]</code>. Slide the span position to see which
+      block hashes change.
+    </p>
+  </div>
+
+  <div class="viz-wrap">
+    <div id="viz-t2"></div>
+    <div class="controls">
+      <label>span_starts position
+        <input type="range" id="t2-slider" min="0" max="3" value="2" step="1" />
+      </label>
+      <span id="t2-pos-label" class="mono"></span>
+    </div>
+  </div>
+</section>
+
+<!-- =========================================================
+     TEST 3 · fan-in
+     ========================================================= -->
+<section id="t3" class="step">
+  <div class="step-head">
+    <span class="ribbon">test 3 · e2e · with warmup</span>
+    <h2>fan-in: different prefix, same chunk, cache reuse</h2>
+    <p class="claim"><code>test_same_pic_chunk_reuse_across_prefixes_e2e</code><br/>
+      Warm up a chunk alone, then run two requests with different 1-block
+      prefixes but the same chunk. Both must HIT the warmup K/V slot via
+      PIC fan-in; the two requests' prefix slots must differ (no
+      cross-prefix reuse on prefix blocks). Two requests with different prefixes but the same PIC chunk hash the
+      <em>chunk</em> identically - the <em>prefix</em> blocks differ.
+    </p>
+  </div>
+
+  <div class="explainer">
+    <p>
+      This is the user-visible promise of PIC: drop the same document,
+      function, or system prompt into any conversation and its KV cache
+      entry is reusable across requests. Hash collision on the chunk → cache hit.
+    </p>
+  </div>
+
+  <div class="viz-wrap">
+    <div id="viz-t3"></div>
+    <div class="controls">
+      <button data-action="t3-shuffle">shuffle prefixes</button>
+    </div>
+  </div>
+</section>
+
+<!-- =========================================================
+     TEST 4 · block-hash structure with PIC spans
+     ========================================================= -->
+<section id="t4" class="step">
+  <div class="step-head">
+    <span class="ribbon">test 4 · structural · no recompute</span>
+    <h2>PIC spans line up <em>block hashes</em> for cross-request reuse</h2>
+    <p class="claim">
+      Pinned by two tests:
+      <code>test_pic_spans_preserve_prefix_caching_across_requests</code>
+      (structural · no LLM · 4 hash assertions) and
+      <code>test_pic_chunk_warmup_then_three_requests</code>
+      (e2e · pre-warms just the chunk via a one-shot
+      <code>llm.generate({prompt_token_ids: chunk}, max_tokens=1)</code>,
+      then runs req_A / req_B / req_C and verifies the warmup slot survives
+      every request and that req_C only adds prefix_Y blocks - i.e. chunk +
+      tail bytes are reused across A and C, not recomputed).
+    </p>
+  </div>
+
+  <div class="explainer">
+    <p>
+      What's tested is <em>block-hash equality</em> - the hash that the prefix
+      cache uses as a <strong>lookup index</strong> (a dictionary key, <em>not</em>
+      the attention K tensor). The K/V tensors stored under that hash are not
+      compared by this test. <code>req_A = prefix_X + chunk + suffix</code>;
+      <code>req_B</code> is byte-identical to A with a different request_id;
+      <code>req_C = prefix_Y + chunk + suffix</code> swaps the prefix.
+      Assertions check which block_hashes collide across the three.
+    </p>
+    <p>
+      <strong>Mechanism</strong> (<code>hash_block_tokens</code>,
+      <code>kv_cache_utils.py:555</code>): when <code>is_span_start=True</code>
+      for the block at <code>span_starts[i]</code>, the parent hash is
+      replaced with <code>NONE_HASH</code>. The chunk's hash then depends
+      only on <code>(NONE_HASH, chunk_tokens, extra_keys)</code>. Every
+      downstream block chains from that prefix-free root, so the entire
+      post-span tail hash-collides across A and C as long as
+      <code>chunk + tail</code> are byte-equal.
+    </p>
+    <p class="callout">
+      <strong>The e2e half of this test currently FAILS by design.</strong>
+      Only the chunk block is marked PIC; tail blocks inherit a fan-in hash
+      because they chain through the chunk's hash. vLLM treats that as a
+      cache hit and silently hands req_C the tail K/V that req_A wrote, even
+      though req_C's actual cross-attention sees a different prefix. The
+      structural half (block-hash equality) still passes - the bug is in the
+      cache lookup, not the hash machinery. The test asserts
+      <code>|C \ A| &gt;= 5</code> (2 prefix_Y + 3 fresh tail blocks); current
+      vLLM gives <code>3</code>. Fix path: cut the hash chain at every block
+      (not just at PIC span_starts) <em>or</em> force gap-policy recompute
+      over tail blocks on cross-prefix cache hits.
+    </p>
+  </div>
+
+  <div class="viz-wrap">
+    <div id="viz-t4"></div>
+    <div class="controls">
+      <button data-action="t4-toggle" id="t4-toggle-btn">show with spans off</button>
+    </div>
+    <div id="viz-t4-state" class="state"></div>
+  </div>
+</section>
+
+<!-- =========================================================
+     TEST 5 · gap interval bounds recompute
+     ========================================================= -->
+<section id="t5" class="step">
+  <div class="step-head">
+    <span class="ribbon">test 5 · runtime · recompute</span>
+    <h2>Gap interval bounds the partial recompute</h2>
+    <p class="claim"><code>test_legolink_partial_recompute_within_gap_interval</code><br/>
+      Mode <code>LL-32</code> sets <code>gap_length = 2 · BLOCK_SIZE</code>.
+      With <code>span_starts = [32]</code> on a 96-token prompt, the policy
+      opens the gap <code>(32, 64)</code>: <em>only</em> the chunk + the
+      first downstream block can be recomputed. Blocks 4 and 5 (further
+      along the span chain) must keep their cached K/V.
+    </p>
+  </div>
+
+  <div class="explainer">
+    <p>
+      Two parts. <strong>Structural</strong> - call
+      <code>SpanAwareGapPolicy(gap_length=32).get_gaps(...)</code> on a
+      Request with <code>span_starts=[32]</code> and pin the returned
+      interval to <code>[(32, 64)]</code>. <strong>End-to-end</strong> -
+      run the same tokenized prompt twice through an LL-32 LLM, snapshot
+      the KV cache between runs, and bound the byte-diff: the gap can
+      recompute at most 2 prompt blocks, so the number of K/V byte-hashes
+      that change is bounded by 2 + a small decode-step budget.
+    </p>
+  </div>
+
+  <div class="viz-wrap">
+    <div id="viz-t5"></div>
+    <div class="controls">
+      <button data-action="t5-step">▶ next step</button>
+      <button data-action="t5-reset">reset</button>
+    </div>
+    <div id="viz-t5-state" class="state"></div>
+  </div>
+</section>
+
+<!-- =========================================================
+     TEST 6 · LL-FULL ≡ FR
+     ========================================================= -->
+<section id="t6" class="step">
+  <div class="step-head">
+    <span class="ribbon">test 6 · runtime · 5-mode equivalence</span>
+    <h2>five "no-PIC-fan-in" configurations all produce the same next-token distribution</h2>
+    <p class="claim"><code>test_legolink_gap_huge_equals_full_recompute</code><br/>
+      Same prompt, no padding, 4 blocks (64 tokens). Five configurations
+      compared: <strong>FR</strong>, <strong>SPANS+no span_starts</strong>,
+      <strong>SPANS+span_starts=[0]</strong>, <strong>LL-FULL+no span_starts</strong>,
+      <strong>LL-FULL+span_starts=[0]</strong>. All five must produce
+      bit-identical text and bit-identical top-K logprobs - because none
+      of them actually does cross-prefix PIC reuse; they only exercise
+      different code paths that should all reduce to the same K/V.
+    </p>
+  </div>
+
+  <div class="explainer">
+    <p>
+      The five modes intentionally cover every "should be a no-op" lever in
+      the spans machinery: env-flag-on-with-no-span_starts, the entire
+      prompt declared as one span (PIC reset at block 0 = no-op since
+      block 0's parent was already None), gap policy with no span_starts
+      to fire on, and gap policy that fires but covers the entire prompt
+      so the re-prefill sees the same context as a cold prefill.
+      Output text is bit-exact and the top-1 token matches; lower-rank
+      logprobs may drift by ~0.04 because the cold-prefill and gap-recompute
+      code paths are not numerically identical.
+    </p>
+  </div>
+
+  <div class="viz-wrap">
+    <div id="viz-t6"></div>
+    <div class="controls">
+      <button data-action="t6-run">▶ run both pipelines</button>
+      <button data-action="t6-reset">reset</button>
+    </div>
+    <div id="viz-t6-state" class="state"></div>
+  </div>
+</section>
+
+<footer>
+  <p>
+    Built to mirror the structure of
+    <a href="https://poloclub.github.io/transformer-explainer/" target="_blank" rel="noopener">poloclub/transformer-explainer</a>.
+    Source tests live at <code>tests/v1/core/test_kv_cache_utils.py</code>
+    and <code>tests/v1/e2e/spans/</code>.
+  </p>
+</footer>
+
+<script src="main.js"></script>
+</body>
+</html>

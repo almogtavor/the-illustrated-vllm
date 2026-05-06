@@ -1,0 +1,532 @@
+/* =========================================================
+   Palette + base - modeled on transformer-explainer:
+   warm off-white, deep ink, accent yellows / blues / red.
+   ========================================================= */
+:root {
+  --bg: #faf7f2;
+  --bg-soft: #f3eee5;
+  --ink: #1a1a1a;
+  --ink-soft: #4a4a4a;
+  --rule: #d8cfbf;
+
+  --tok: #e9e3d4;
+  --tok-stroke: #b9af96;
+
+  --blk: #b8d8e8;
+  --blk-stroke: #5b8aa3;
+
+  --pic: #f6c453;
+  --pic-stroke: #b08218;
+
+  --kv: #cfe6cf;
+  --kv-stroke: #5e9c5e;
+
+  --recomp: #ef6f4a;
+  --recomp-stroke: #a83b1b;
+
+  --gap: rgba(239, 111, 74, 0.18);
+  --gap-stroke: #ef6f4a;
+
+  --hash-a: #4a6fa5;
+  --hash-b: #b85c8e;
+
+  --link: #2a5a9c;
+}
+
+* { box-sizing: border-box; }
+
+html, body {
+  margin: 0;
+  padding: 0;
+  background: var(--bg);
+  color: var(--ink);
+  font-family: "Inter", "Helvetica Neue", system-ui, sans-serif;
+  font-size: 16px;
+  line-height: 1.55;
+  -webkit-font-smoothing: antialiased;
+}
+
+code, .mono {
+  font-family: "JetBrains Mono", "SF Mono", Menlo, Consolas, monospace;
+  font-size: 0.92em;
+}
+
+a { color: var(--link); }
+
+/* =========================================================
+   Hero
+   ========================================================= */
+.hero {
+  border-bottom: 1px solid var(--rule);
+  padding: 6rem 1.5rem 4rem;
+  background:
+    radial-gradient(1200px 600px at 80% -10%, #f6e3a6 0%, transparent 60%),
+    radial-gradient(800px 400px at 0% 110%, #cfe6e8 0%, transparent 60%),
+    var(--bg);
+}
+
+.hero-inner {
+  max-width: 1100px;
+  margin: 0 auto;
+}
+
+.eyebrow {
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  font-size: 0.72rem;
+  color: var(--ink-soft);
+  margin: 0 0 1rem;
+}
+
+h1 {
+  font-size: clamp(3rem, 8vw, 6rem);
+  line-height: 0.95;
+  letter-spacing: -0.03em;
+  margin: 0 0 1.5rem;
+  font-weight: 800;
+}
+
+h1 .thin {
+  font-weight: 200;
+  font-style: italic;
+  color: var(--ink-soft);
+}
+
+.lede {
+  max-width: 56ch;
+  font-size: 1.15rem;
+  color: var(--ink-soft);
+  margin: 0 0 2rem;
+}
+
+.lede em {
+  font-style: italic;
+  color: var(--ink);
+}
+
+.legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1.25rem;
+  font-size: 0.85rem;
+  color: var(--ink-soft);
+}
+
+.legend .dot {
+  display: inline-block;
+  width: 12px;
+  height: 12px;
+  border-radius: 3px;
+  margin-right: 0.4rem;
+  vertical-align: middle;
+  border: 1px solid var(--ink);
+}
+
+.legend .tok    { background: var(--tok); border-color: var(--tok-stroke); }
+.legend .blk    { background: var(--blk); border-color: var(--blk-stroke); }
+.legend .pic    { background: var(--pic); border-color: var(--pic-stroke); }
+.legend .kv     { background: var(--kv);  border-color: var(--kv-stroke); }
+.legend .recomp { background: var(--recomp); border-color: var(--recomp-stroke); }
+
+/* =========================================================
+   TOC
+   ========================================================= */
+.toc {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  background: rgba(250, 247, 242, 0.92);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  border-bottom: 1px solid var(--rule);
+}
+
+.toc ol {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1.25rem;
+  list-style: none;
+  margin: 0;
+  padding: 0.85rem 1.5rem;
+  max-width: 1100px;
+  margin: 0 auto;
+  font-size: 0.83rem;
+}
+
+.toc a {
+  color: var(--ink-soft);
+  text-decoration: none;
+  border-bottom: 1px solid transparent;
+  padding-bottom: 1px;
+}
+
+.toc a:hover {
+  color: var(--ink);
+  border-bottom-color: var(--ink);
+}
+
+.toc a.cross {
+  color: var(--link);
+  font-style: italic;
+}
+
+.eyebrow a {
+  color: inherit;
+  text-decoration: none;
+  border-bottom: 1px dotted var(--ink-soft);
+}
+
+.eyebrow a:hover {
+  color: var(--ink);
+  border-bottom-color: var(--ink);
+}
+
+/* =========================================================
+   vLLM-tour-only viz helpers
+   ========================================================= */
+.lane-label {
+  font-family: "JetBrains Mono", monospace;
+  font-size: 11px;
+  fill: var(--ink-soft);
+}
+
+.lane-bg {
+  fill: var(--bg-soft);
+  stroke: var(--rule);
+  stroke-width: 1;
+}
+
+.lane-bg.done {
+  fill: #fff;
+  stroke-dasharray: 3 3;
+}
+
+.draft-rect {
+  fill: #ffe9c8;
+  stroke: var(--pic-stroke);
+  stroke-width: 1.2;
+}
+
+.draft-rect.rejected {
+  fill: #fde0d4;
+  stroke: var(--recomp-stroke);
+}
+
+.target-rect {
+  fill: var(--kv);
+  stroke: var(--kv-stroke);
+  stroke-width: 1.5;
+}
+
+.cache-hit-rect {
+  fill: var(--kv);
+  stroke: var(--kv-stroke);
+  stroke-width: 1.5;
+}
+
+.block-table-row {
+  fill: #fff;
+  stroke: var(--rule);
+}
+
+.block-table-row.used {
+  fill: var(--bg-soft);
+}
+
+.physical-pool-cell {
+  fill: #fff;
+  stroke: var(--rule);
+}
+
+.physical-pool-cell.allocated {
+  fill: var(--blk);
+  stroke: var(--blk-stroke);
+}
+
+.physical-pool-cell.allocated.shared {
+  fill: var(--kv);
+  stroke: var(--kv-stroke);
+}
+
+.connector {
+  stroke: var(--ink-soft);
+  stroke-width: 1;
+  fill: none;
+  opacity: 0.45;
+}
+
+/* =========================================================
+   Sections
+   ========================================================= */
+.step {
+  max-width: 1100px;
+  margin: 0 auto;
+  padding: 5rem 1.5rem;
+  border-bottom: 1px solid var(--rule);
+}
+
+.step-head {
+  margin-bottom: 2.5rem;
+  max-width: 70ch;
+}
+
+.step h2 {
+  font-size: clamp(1.6rem, 3vw, 2.4rem);
+  line-height: 1.15;
+  letter-spacing: -0.01em;
+  margin: 0.5rem 0 1rem;
+  font-weight: 700;
+}
+
+.step h2 em {
+  font-style: italic;
+  color: var(--recomp);
+}
+
+.ribbon {
+  display: inline-block;
+  font-size: 0.7rem;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  background: var(--ink);
+  color: var(--bg);
+  padding: 0.25rem 0.55rem;
+  border-radius: 2px;
+}
+
+.claim {
+  font-size: 0.95rem;
+  color: var(--ink-soft);
+  margin: 0.75rem 0 0;
+}
+
+.claim code {
+  background: var(--bg-soft);
+  padding: 1px 5px;
+  border-radius: 3px;
+}
+
+.explainer {
+  max-width: 65ch;
+  margin-bottom: 2rem;
+  color: var(--ink-soft);
+}
+
+.explainer code,
+.explainer strong {
+  color: var(--ink);
+}
+
+.explainer code {
+  background: var(--bg-soft);
+  padding: 1px 5px;
+  border-radius: 3px;
+}
+
+/* =========================================================
+   Concepts grid
+   ========================================================= */
+.concepts-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 1.5rem;
+}
+
+.concept {
+  background: #fff;
+  border: 1px solid var(--rule);
+  border-radius: 6px;
+  padding: 1.25rem;
+}
+
+.concept h3 {
+  margin: 0 0 0.5rem;
+  font-size: 1.05rem;
+  letter-spacing: 0.01em;
+}
+
+.concept p {
+  font-size: 0.88rem;
+  color: var(--ink-soft);
+  margin: 0 0 1rem;
+}
+
+.concept[data-term] {
+  transition: transform 120ms ease;
+}
+
+.concept[data-term]:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.06);
+}
+
+/* =========================================================
+   Visualization wrappers
+   ========================================================= */
+.viz-wrap {
+  background: #fff;
+  border: 1px solid var(--rule);
+  border-radius: 8px;
+  padding: 1.5rem;
+}
+
+.viz-wrap svg {
+  display: block;
+  width: 100%;
+  height: auto;
+  overflow: visible;
+}
+
+.controls {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 1rem;
+  margin-top: 1rem;
+  padding-top: 1rem;
+  border-top: 1px dashed var(--rule);
+}
+
+.controls button {
+  background: var(--ink);
+  color: var(--bg);
+  border: 0;
+  padding: 0.5rem 0.9rem;
+  border-radius: 4px;
+  font-family: inherit;
+  font-size: 0.85rem;
+  cursor: pointer;
+  transition: background 100ms;
+}
+
+.controls button:hover {
+  background: var(--recomp);
+}
+
+.controls label {
+  font-size: 0.85rem;
+  color: var(--ink-soft);
+  display: inline-flex;
+  align-items: center;
+  gap: 0.6rem;
+}
+
+.controls input[type="range"] {
+  width: 200px;
+}
+
+.state {
+  margin-top: 1rem;
+  padding: 0.85rem 1rem;
+  background: var(--bg-soft);
+  border-left: 3px solid var(--ink);
+  border-radius: 2px;
+  font-family: "JetBrains Mono", monospace;
+  font-size: 0.82rem;
+  color: var(--ink);
+  white-space: pre-wrap;
+}
+
+/* =========================================================
+   SVG helpers - token + block visuals
+   ========================================================= */
+.tok-rect {
+  fill: var(--tok);
+  stroke: var(--tok-stroke);
+  stroke-width: 1;
+}
+
+.blk-rect {
+  fill: var(--blk);
+  stroke: var(--blk-stroke);
+  stroke-width: 1.5;
+}
+
+.pic-rect {
+  fill: var(--pic);
+  stroke: var(--pic-stroke);
+  stroke-width: 1.5;
+}
+
+.kv-rect {
+  fill: var(--kv);
+  stroke: var(--kv-stroke);
+  stroke-width: 1.5;
+}
+
+.recomp-rect {
+  fill: var(--recomp);
+  stroke: var(--recomp-stroke);
+  stroke-width: 1.5;
+}
+
+.gap-rect {
+  fill: var(--gap);
+  stroke: var(--gap-stroke);
+  stroke-width: 1.5;
+  stroke-dasharray: 4 3;
+}
+
+.lbl {
+  font-family: "JetBrains Mono", monospace;
+  font-size: 11px;
+  fill: var(--ink);
+}
+
+.lbl-soft {
+  fill: var(--ink-soft);
+}
+
+.lbl-tiny {
+  font-size: 9px;
+}
+
+.hash-line {
+  stroke: var(--hash-a);
+  stroke-width: 1.5;
+  fill: none;
+  marker-end: url(#arrow);
+}
+
+.hash-line.cut {
+  stroke: var(--recomp);
+  stroke-dasharray: 4 3;
+}
+
+.hash-pill {
+  fill: #fff;
+  stroke: var(--hash-a);
+  stroke-width: 1.2;
+}
+
+.hash-pill.match-a { stroke: var(--hash-a); }
+.hash-pill.match-b { stroke: var(--hash-b); }
+
+.section-divider {
+  stroke: var(--rule);
+  stroke-width: 1;
+  stroke-dasharray: 2 4;
+}
+
+.flash {
+  animation: flash 600ms ease;
+}
+
+@keyframes flash {
+  0%   { filter: brightness(1.4) drop-shadow(0 0 8px var(--recomp)); }
+  100% { filter: none; }
+}
+
+footer {
+  max-width: 1100px;
+  margin: 0 auto;
+  padding: 3rem 1.5rem 4rem;
+  color: var(--ink-soft);
+  font-size: 0.85rem;
+}
+
+footer code {
+  background: var(--bg-soft);
+  padding: 1px 5px;
+  border-radius: 3px;
+}

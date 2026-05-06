@@ -1,0 +1,356 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>The vLLM tour - paged attention, batching, prefix cache, speculative decoding</title>
+<meta name="description" content="A short, interactive walk-through of vLLM's core ideas: paged attention, continuous batching, prefix caching, and speculative decoding." />
+<link rel="stylesheet" href="style.css" />
+</head>
+<body>
+
+<header class="hero">
+  <div class="hero-inner">
+    <p class="eyebrow"><a href="../">illustrated vllm</a> · the tour</p>
+    <h1>The vLLM <span class="thin">tour</span></h1>
+    <p class="lede">
+      Seven ideas that make <a href="https://github.com/vllm-project/vllm" target="_blank" rel="noopener">vLLM</a>
+      fast: <em>paged attention</em>, <em>continuous batching</em>,
+      <em>prefix caching</em>, <em>speculative decoding</em>,
+      <em>chunked prefill</em>, <em>tensor parallelism</em>, and
+      <em>disaggregated prefill/decode</em>. One diagram each.
+    </p>
+    <div class="legend">
+      <span class="dot tok"></span> token
+      <span class="dot blk"></span> KV block
+      <span class="dot pic"></span> shared / cached
+      <span class="dot kv"></span> generated
+      <span class="dot recomp"></span> recompute / rejected
+    </div>
+  </div>
+</header>
+
+<nav class="toc">
+  <ol>
+    <li><a href="#paged">1 · paged attention</a></li>
+    <li><a href="#batching">2 · continuous batching</a></li>
+    <li><a href="#prefix">3 · prefix caching</a></li>
+    <li><a href="#spec">4 · speculative decoding</a></li>
+    <li><a href="#chunked">5 · chunked prefill</a></li>
+    <li><a href="#tp">6 · tensor parallelism</a></li>
+    <li><a href="#pd">7 · disaggregated P/D</a></li>
+    <li><a href="../pic/" class="cross">→ deep dive: PIC / Legolink</a></li>
+  </ol>
+</nav>
+
+<!-- =========================================================
+     1 · Paged Attention
+     ========================================================= -->
+<section id="paged" class="step">
+  <div class="step-head">
+    <span class="ribbon">concept 1</span>
+    <h2>paged attention <em>splits the KV cache into blocks</em></h2>
+    <p class="claim">
+      Like an operating system pages physical memory, vLLM stores each
+      sequence's K/V in fixed-size <strong>blocks</strong> (default
+      <code>BLOCK_SIZE = 16</code>). A <strong>block table</strong> maps the
+      sequence's logical token positions to physical block ids - so the cache
+      doesn't have to be one contiguous slab per request.
+    </p>
+  </div>
+
+  <div class="explainer">
+    <p>
+      Why this matters: classical attention implementations allocate a
+      contiguous KV buffer sized to the request's <em>maximum</em> length.
+      Most of that buffer is wasted. With paging, vLLM allocates one block at
+      a time as tokens arrive, packs many sequences into the same physical
+      KV pool, and never fragments.
+    </p>
+    <p>
+      Add tokens with the slider. Watch new physical blocks get pulled from
+      the free pool and stitched into the sequence's block table.
+    </p>
+  </div>
+
+  <div class="viz-wrap">
+    <div id="viz-paged"></div>
+    <div class="controls">
+      <label>tokens generated
+        <input type="range" id="paged-len" min="0" max="64" value="20" step="1" />
+      </label>
+      <span id="paged-len-label" class="mono"></span>
+    </div>
+    <div id="viz-paged-state" class="state"></div>
+  </div>
+</section>
+
+<!-- =========================================================
+     2 · Continuous Batching
+     ========================================================= -->
+<section id="batching" class="step">
+  <div class="step-head">
+    <span class="ribbon">concept 2</span>
+    <h2>continuous batching <em>schedules at the iteration level</em></h2>
+    <p class="claim">
+      Instead of waiting for a whole batch to finish before starting the next
+      (static batching), vLLM runs <strong>one decode step at a time</strong>
+      across whatever requests are alive. Finished requests drop out
+      immediately; new ones can join on the very next step.
+    </p>
+  </div>
+
+  <div class="explainer">
+    <p>
+      The result is much higher GPU utilization: the model is never blocked
+      waiting for the slowest request in a batch to finish. It also makes
+      latency-vs-throughput tuning a scheduler problem rather than a
+      bucketing problem.
+    </p>
+    <p>
+      Step the simulator forward. Each request finishes at a different time;
+      a new one slots in as soon as a slot frees up.
+    </p>
+  </div>
+
+  <div class="viz-wrap">
+    <div id="viz-batching"></div>
+    <div class="controls">
+      <button data-action="batch-step">▶ next iteration</button>
+      <button data-action="batch-reset">reset</button>
+      <span id="batch-iter-label" class="mono"></span>
+    </div>
+    <div id="viz-batching-state" class="state"></div>
+  </div>
+</section>
+
+<!-- =========================================================
+     3 · Prefix Caching
+     ========================================================= -->
+<section id="prefix" class="step">
+  <div class="step-head">
+    <span class="ribbon">concept 3</span>
+    <h2>prefix caching <em>reuses KV blocks across requests</em></h2>
+    <p class="claim">
+      Block-level KV state is content-addressed by the hash of its tokens
+      (and parent block). Two requests that begin with the same prompt - a
+      shared system prompt, a reused tool description, a long document -
+      collide on the early block hashes and <strong>share the cached KV
+      blocks directly</strong>.
+    </p>
+  </div>
+
+  <div class="explainer">
+    <p>
+      The first request fills the cache. The second request just walks the
+      hash chain, gets cache hits on the shared prefix, and only runs the
+      model on the divergent tail.
+    </p>
+    <p>
+      Type a different suffix below. The shared prefix lights up green
+      (cached); only the new tail is computed.
+    </p>
+  </div>
+
+  <div class="viz-wrap">
+    <div id="viz-prefix"></div>
+    <div class="controls">
+      <label>request B suffix length
+        <input type="range" id="prefix-suffix" min="0" max="48" value="16" step="1" />
+      </label>
+      <span id="prefix-suffix-label" class="mono"></span>
+    </div>
+    <div id="viz-prefix-state" class="state"></div>
+  </div>
+</section>
+
+<!-- =========================================================
+     4 · Speculative Decoding
+     ========================================================= -->
+<section id="spec" class="step">
+  <div class="step-head">
+    <span class="ribbon">concept 4</span>
+    <h2>speculative decoding <em>drafts cheap, verifies correct</em></h2>
+    <p class="claim">
+      A small/cheap <strong>draft</strong> proposes <code>k</code> next
+      tokens. The big <strong>target</strong> model runs <em>one</em> forward
+      pass to score all <code>k</code>, accepts the longest matching prefix,
+      and resamples the first rejection. Output is bit-identical to plain
+      decoding from the target.
+    </p>
+  </div>
+
+  <div class="explainer">
+    <p>
+      The win: when the draft is right, you got <code>k</code> tokens for the
+      cost of one big-model forward pass. When it's wrong, you fall back to
+      the safe sample at the rejection point - never worse than non-spec.
+    </p>
+    <p>
+      Step through one round: draft proposes, target verifies, accepted span
+      is committed, rejected suffix is thrown away.
+    </p>
+  </div>
+
+  <div class="viz-wrap">
+    <div id="viz-spec"></div>
+    <div class="controls">
+      <button data-action="spec-step">▶ next round</button>
+      <button data-action="spec-reset">reset</button>
+    </div>
+    <div id="viz-spec-state" class="state"></div>
+  </div>
+</section>
+
+<!-- =========================================================
+     5 · Chunked Prefill
+     ========================================================= -->
+<section id="chunked" class="step">
+  <div class="step-head">
+    <span class="ribbon">concept 5</span>
+    <h2>chunked prefill <em>splits long prompts so decodes don't starve</em></h2>
+    <p class="claim">
+      A naive scheduler runs each prefill to completion before any decode can
+      run on the same step - a 4k-token prefill blocks every other request's
+      decode for many iterations. <strong>Chunked prefill</strong> breaks the
+      prefill into fixed-size chunks (e.g. 512 tokens) and lets each chunk
+      ride alongside the decodes already in flight.
+    </p>
+  </div>
+
+  <div class="explainer">
+    <p>
+      No FLOPs are saved - the prefill still costs the same total compute.
+      The wins are: <strong>(1)</strong> latency-sensitive decodes don't
+      starve, and <strong>(2)</strong> prefill is compute-bound while decode
+      is memory-bandwidth-bound, so packing a prefill chunk into the same
+      iteration as the in-flight decodes uses different GPU resources at the
+      same time - net throughput goes up.
+    </p>
+    <p>
+      Slide the chunk size. The top track is the unchunked baseline; the
+      bottom track is what chunked prefill produces. Watch when the green
+      decode steps get to run.
+    </p>
+  </div>
+
+  <div class="viz-wrap">
+    <div id="viz-chunked"></div>
+    <div class="controls">
+      <label>chunk size (tokens)
+        <input type="range" id="chunked-size" min="16" max="96" value="32" step="16" />
+      </label>
+      <span id="chunked-size-label" class="mono"></span>
+    </div>
+    <div id="viz-chunked-state" class="state"></div>
+  </div>
+</section>
+
+<!-- =========================================================
+     6 · Tensor Parallelism
+     ========================================================= -->
+<section id="tp" class="step">
+  <div class="step-head">
+    <span class="ribbon">concept 6</span>
+    <h2>tensor parallelism <em>shards weight matrices across GPUs</em></h2>
+    <p class="claim">
+      Slice the weights. The input <code>x</code> to this block is the
+      <em>output of the previous block</em> (e.g. the attention block right
+      before this MLP). That previous block ended with an all-reduce, which
+      already produced an identical copy of its output on every rank - so
+      the next block starts with <code>x</code> already replicated, no
+      broadcast required. Within a block, ranks chain a
+      <strong>column-parallel</strong> GEMM (replicated input → sharded
+      intermediate) into a <strong>row-parallel</strong> GEMM (sharded input
+      → partial-sum output); the intermediate between the two linears is
+      sharded, not replicated. Only the final <strong>all-reduce</strong>
+      at the block's exit makes ranks wait on each other - <em>one</em>
+      collective per attention block, <em>one</em> per MLP block.
+    </p>
+  </div>
+
+  <div class="explainer">
+    <p>
+      Step through one MLP block. Watch <code>x</code> flow:
+      replicated (from the previous block's all-reduce) → col-parallel →
+      sharded intermediate → row-parallel → partial-sum → all-reduce →
+      replicated, ready for the next block.
+    </p>
+  </div>
+
+  <div class="viz-wrap">
+    <div id="viz-tp"></div>
+    <div class="controls">
+      <label>tensor_parallel_size
+        <select id="tp-size">
+          <option value="1">1</option>
+          <option value="2" selected>2</option>
+          <option value="4">4</option>
+          <option value="8">8</option>
+        </select>
+      </label>
+      <button data-action="tp-step">▶ next stage</button>
+      <button data-action="tp-reset">reset</button>
+    </div>
+    <div id="viz-tp-state" class="state"></div>
+  </div>
+</section>
+
+<!-- =========================================================
+     7 · Disaggregated Prefill / Decode
+     ========================================================= -->
+<section id="pd" class="step">
+  <div class="step-head">
+    <span class="ribbon">concept 7</span>
+    <h2>disaggregated P/D <em>prefill and decode want different hardware</em></h2>
+    <p class="claim">
+      Prefill is <strong>compute-bound</strong> (one big forward pass over
+      thousands of tokens). Decode is <strong>memory-bandwidth-bound</strong>
+      (one token at a time, dominated by KV reads). Running both on the same
+      pool means each starves the other. <strong>Disaggregated serving</strong>
+      runs them on separate worker pools and ships the KV cache between them.
+    </p>
+  </div>
+
+  <div class="explainer">
+    <p>
+      The request lifecycle: arrive at a prefill worker → run the big prefill
+      → transfer the resulting KV blocks (over NVLink, RDMA, or
+      <code>nixl</code>) to a decode worker → stream output tokens from the
+      decode worker. The two pools can be sized and tuned independently.
+    </p>
+    <p>
+      Step through one request's lifecycle.
+    </p>
+  </div>
+
+  <div class="viz-wrap">
+    <div id="viz-pd"></div>
+    <div class="controls">
+      <button data-action="pd-step">▶ next stage</button>
+      <button data-action="pd-reset">reset</button>
+    </div>
+    <div id="viz-pd-state" class="state"></div>
+  </div>
+</section>
+
+<footer>
+  <p>
+    Want a deeper dive into one specific piece of vLLM's V1 KV cache?
+    See the long-form
+    <a href="../pic/">PIC / Legolink walk-through</a>
+    - six tests, six interactive diagrams, all about position-invariant
+    chunks and in-place KV overwrite.
+  </p>
+  <p class="footnote">
+    Source on <a href="https://github.com/almogtavor/illustrated-vllm" target="_blank" rel="noopener">GitHub</a>.
+    Inspired by
+    <a href="https://poloclub.github.io/transformer-explainer/" target="_blank" rel="noopener">poloclub/transformer-explainer</a>,
+    <a href="https://www.aleksagordic.com/blog/vllm" target="_blank" rel="noopener">Aleksa Gordić's vLLM blog</a>,
+    and <a href="https://jalammar.github.io/illustrated-transformer/" target="_blank" rel="noopener">Jay Alammar's Illustrated Transformer</a>.
+  </p>
+</footer>
+
+<script src="main.js"></script>
+</body>
+</html>

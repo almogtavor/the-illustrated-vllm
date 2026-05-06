@@ -1,0 +1,94 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Illustrated vLLM - interactive walk-throughs of how vLLM serves LLMs</title>
+<meta name="description" content="Interactive, visual explainers for vLLM internals - paged attention, continuous batching, prefix caching, speculative decoding, and the spans / Legolink KV-cache work." />
+<link rel="stylesheet" href="assets/home.css" />
+</head>
+<body>
+
+<header class="hero">
+  <div class="hero-inner">
+    <p class="eyebrow">vllm · paged attention · kv cache</p>
+    <h1>Illustrated <span class="thin">vLLM</span></h1>
+    <p class="lede">
+      A small set of interactive, visual walk-throughs of how
+      <a href="https://github.com/vllm-project/vllm" target="_blank" rel="noopener">vLLM</a>
+      serves large language models - the moving parts behind paged attention,
+      continuous batching, prefix caching, and the position-invariant KV cache
+      work in V1.
+    </p>
+    <p class="lede small">
+      Each page is a single static HTML file with hand-drawn SVG diagrams you
+      can poke at. No build step, no dependencies, no JavaScript framework.
+    </p>
+  </div>
+</header>
+
+<main class="cards">
+  <a class="card" href="vllm/">
+    <span class="ribbon">start here</span>
+    <h2>The vLLM tour <span class="arrow">→</span></h2>
+    <p class="card-lede">
+      Seven core ideas that make vLLM fast - one diagram per concept, each
+      one interactive.
+    </p>
+    <ul class="card-bullets">
+      <li>paged attention &amp; the block table</li>
+      <li>continuous (iteration-level) batching</li>
+      <li>prefix caching across requests</li>
+      <li>speculative decoding: draft &amp; verify</li>
+      <li>chunked prefill</li>
+      <li>tensor parallelism &amp; the all-reduce</li>
+      <li>disaggregated prefill / decode</li>
+    </ul>
+    <span class="card-link mono">/vllm</span>
+  </a>
+
+  <a class="card" href="pic/">
+    <span class="ribbon ribbon-soft">deep dive</span>
+    <h2>PIC / Legolink <span class="arrow">→</span></h2>
+    <p class="card-lede">
+      A long, test-by-test walk-through of position-invariant chunks,
+      <code>span_starts</code>, and the Legolink gap policy that re-prefills
+      KV in place. Six interactive visualizations, one per pinning test.
+    </p>
+    <ul class="card-bullets">
+      <li>PIC chunk hash invariance</li>
+      <li>span boundaries cutting the hash chain</li>
+      <li>fan-in across requests</li>
+      <li>gap intervals &amp; in-place KV overwrite</li>
+      <li>LL-FULL ≡ full-recompute equivalence</li>
+    </ul>
+    <span class="card-link mono">/pic</span>
+  </a>
+</main>
+
+<section class="meta">
+  <div class="meta-inner">
+    <h3>Why this site</h3>
+    <p>
+      vLLM is one of the most-deployed LLM inference engines, and a lot of its
+      cleverness is structural: how memory is laid out, how requests are
+      scheduled, how the KV cache is reused. Diagrams help.
+    </p>
+    <p>
+      The two pages here have very different shapes. <a href="vllm/">/vllm</a>
+      is a short tour for someone who has heard of paged attention and wants
+      to actually see it. <a href="pic/">/pic</a> is a long-form walk-through
+      of one specific piece of work - the spans / Legolink tests in vLLM's V1
+      KV cache - visualized one test at a time.
+    </p>
+    <p class="footnote">
+      Inspired by
+      <a href="https://poloclub.github.io/transformer-explainer/" target="_blank" rel="noopener">poloclub/transformer-explainer</a>.
+      Source on
+      <a href="https://github.com/almogtavor/illustrated-vllm" target="_blank" rel="noopener">GitHub</a>.
+    </p>
+  </div>
+</section>
+
+</body>
+</html>
