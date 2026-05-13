@@ -449,59 +449,96 @@ const T2 = (function () {
 })();
 
 // =============================================================
-// TEST 3 · same_pic_chunk_hashes_match_across_requests_no_recompute
-// Two requests, different prefixes, same chunk → fan-in.
+// TEST 3 · repeated_pic_span_reuse_and_gap_recompute
+// One prompt contains the same 2-block PIC span twice.
 // =============================================================
 const T3 = (function () {
   const root = document.getElementById("viz-t3");
-  let prefixSeed = 0;
+  let showGapReplay = false;
 
   function render() {
-    const W = 980, H = 280;
+    const W = 980, H = 330;
     const svg = svgRoot(root, W, H);
 
-    const blkW = 110, blkH = 36, gap = 14;
+    const blkW = 76, blkH = 34, gap = 8, x0 = 30;
+    const labels = ["prefix", "PIC 0", "PIC 1", "cross", "regular",
+      "PIC 0", "PIC 1", "cross", "regular", "cold"];
+    const kinds = ["blk", "pic", "pic", "blk", "blk",
+      "pic", "pic", "blk", "blk", "recomp"];
+    const xs = labels.map((_, i) => x0 + i * (blkW + gap));
 
-    const drawRow = (label, y, prefixLabel, prefixSeedStr) => {
-      drawText(svg, 30, y - 24, label, "lbl");
-      drawBlock(svg, 30, y, blkW, blkH, "blk", prefixLabel);
-      drawBlock(svg, 30 + blkW + gap, y, blkW, blkH, "pic", "chunk [500..515]");
-      const prefixHash = fakeHash("prefix|" + prefixSeedStr);
-      const chunkHash = fakeHash("pic-chunk|500-515");
-      drawHashPill(svg, 30 + blkW / 2, y + blkH + 22, prefixHash, "match-a");
-      drawHashPill(svg, 30 + blkW + gap + blkW / 2, y + blkH + 22, chunkHash, "match-b");
-      return { prefixHash, chunkHash };
-    };
+    drawText(svg, x0, 28, "req_A prompt layout", "lbl");
+    for (let i = 0; i < labels.length; i++) {
+      drawBlock(svg, xs[i], 50, blkW, blkH, kinds[i], labels[i]);
+      drawText(svg, xs[i] + 8, 100, `b${i}`, "lbl lbl-tiny");
+    }
 
-    const a = drawRow("Request A - prefix [0..15] + chunk", 60,
-      "[0..15]", "0-15-" + prefixSeed);
-    const b = drawRow("Request B - prefix [900..915] + chunk", 180,
-      "[900..915]", "900-915-" + prefixSeed);
+    for (const i of [1, 5]) {
+      el("path", {
+        d: `M ${xs[i]},43 L ${xs[i]},91`,
+        stroke: "var(--recomp)",
+        "stroke-width": 2,
+        "stroke-dasharray": "3 2",
+      }, svg);
+      drawText(svg, xs[i] - 4, 39, "span", "lbl lbl-tiny");
+    }
+    for (const i of [3, 7]) {
+      drawText(svg, xs[i] + 2, 121, "cross_span_start", "lbl lbl-tiny");
+    }
 
-    // Connect chunk pills
+    const pic0 = fakeHash("pic-500-515");
+    const pic1 = fakeHash("pic-516-531");
+    const crossA = fakeHash("cross-after-first-span");
+    const crossB = fakeHash("cross-after-second-span");
+    const hashY = 146;
+    const pills = [
+      [1, pic0, "match-b"], [2, pic1, "match-b"],
+      [5, pic0, "match-b"], [6, pic1, "match-b"],
+      [3, crossA, "match-a"], [7, crossB, "match-a"],
+    ];
+    for (const [i, hash, klass] of pills) {
+      drawHashPill(svg, xs[i] + blkW / 2, hashY, hash, klass);
+    }
     el("path", {
-      d: `M ${30 + blkW + gap + blkW / 2 + 40},${60 + blkH + 22}
-          C ${500},${60 + blkH + 22} ${500},${180 + blkH + 22}
-            ${30 + blkW + gap + blkW / 2 + 40},${180 + blkH + 22}`,
+      d: `M ${xs[1] + blkW / 2},${hashY + 15}
+          C ${xs[2]},${184} ${xs[5]},${184} ${xs[5] + blkW / 2},${hashY + 15}`,
       fill: "none",
       stroke: "var(--hash-b)",
       "stroke-width": 2,
       "stroke-dasharray": "5 3",
     }, svg);
-    drawText(svg, 540, (60 + 180) / 2 + blkH + 26,
-      "fan-in: identical hash → cache hit on the chunk", "lbl");
+    drawText(svg, 374, 192, "same 2-block PIC hash appears twice", "lbl");
 
-    // Connect prefix pills (X - different)
-    drawText(svg, 30, H - 30,
-      `req_a.block_hashes[0] = ${a.prefixHash}   ≠   req_b.block_hashes[0] = ${b.prefixHash}`,
-      "lbl lbl-soft");
-    drawText(svg, 30, H - 14,
-      `req_a.block_hashes[1] = ${a.chunkHash}   ==   req_b.block_hashes[1] = ${b.chunkHash}   ✓`,
-      "lbl");
+    if (!showGapReplay) {
+      drawText(svg, x0, 252,
+        "SPANS-PC: warm span + reachable prefix/bridge → req_A reports 7 cached blocks, then stops at the next cold cross block",
+        "lbl lbl-soft");
+      drawText(svg, x0, 276,
+        "The cold suffix keeps the request from becoming a full-prompt cache hit.",
+        "lbl lbl-soft");
+    } else {
+      drawText(svg, x0, 226, "LL-16 replay: gap_length = 1 block", "lbl");
+      for (const i of [1, 5]) {
+        el("rect", {
+          x: xs[i] - 3,
+          y: 238,
+          width: blkW + 6,
+          height: 42,
+          rx: 4,
+          class: "gap-rect",
+        }, svg);
+        drawText(svg, xs[i] + 8, 263, "recompute", "lbl lbl-tiny");
+      }
+      drawHashPill(svg, xs[1] + blkW / 2, 306, fakeHash("kv-span-1-prefix-A"), "match-a");
+      drawHashPill(svg, xs[5] + blkW / 2, 306, fakeHash("kv-span-2-prefix-B"), "match-b");
+      drawText(svg, 356, 310,
+        "same tokens, different left context → first-block K/V bytes must differ",
+        "lbl lbl-soft");
+    };
   }
 
   document.querySelector('[data-action="t3-shuffle"]').addEventListener("click", () => {
-    prefixSeed++;
+    showGapReplay = !showGapReplay;
     render();
   });
   render();
@@ -912,12 +949,13 @@ const T5 = (function () {
     stateEl.textContent = STEPS[step] +
       (step >= 5
         ? "\n\nassert SpanAwareGapPolicy(gap_length=32).get_gaps(req) == [(32, 64)]   ✓\n" +
+          "assert replay.num_cached_tokens == 80   ✓ (5 cached blocks; final block stays cold)\n" +
           "assert |new K/V byte-hashes between runs| <= 4   ✓ (gap bounds at 2 blocks + decode slack)\n\n" +
           "real run on H100, Qwen3-0.6B, LL-32 mode:\n" +
           "  structural · gaps = [(32, 64)]              ✓ PASS\n" +
-          "  e2e        · |s1|=9, |s2|=9, |new|=0       ✓ PASS\n" +
+          "  e2e        · cached=80, |new| bounded      ✓ PASS\n" +
           "  (deterministic model + temp=0 → recompute reproduces identical bytes;\n" +
-          "   the meaningful claim is the upper bound, not the actual diff.)"
+           "   the meaningful claim is the upper bound, not the actual diff.)"
         : "");
   }
 
@@ -1031,7 +1069,7 @@ const T6 = (function () {
     // Verdict
     if (phase >= 4) {
       drawText(svg, 40, H - 16,
-        "assert replay_text == ref_text   ✓     assert replay_top == ref_top   ✓",
+        "assert replay_cached == 48   ✓     assert replay_text/top-1/top-K set == FR   ✓",
         "lbl");
     }
 
@@ -1046,15 +1084,16 @@ const T6 = (function () {
     if (phase >= 4) {
       txt += "\n\n" +
         "real run on H100, Qwen3-0.6B, tokenized 4-block prompt (no padding):\n" +
-        "  mode             text==FR?  top10==FR?  max-Δlogprob   top-1\n" +
-        "  ----             ---------  ----------  ------------   -----\n" +
-        "  FR               True       True        0.00e+00       id=90  lp=-1.190595\n" +
-        "  SPANS+no_sp      True       True        0.00e+00       id=90  lp=-1.190595\n" +
-        "  SPANS+sp[0]      True       True        0.00e+00       id=90  lp=-1.190595\n" +
-        "  LL-FULL+no_sp    True       True        0.00e+00       id=90  lp=-1.190595\n" +
-        "  LL-FULL+sp[0]    True       True        0.00e+00       id=90  lp=-1.190595\n" +
+        "  mode             replay cached?  text==FR?  top1==FR?  top10 set==FR?\n" +
+        "  ----             --------------  ---------  ---------  -------------\n" +
+        "  FR               n/a             True       True       True\n" +
+        "  SPANS+no_sp      n/a             True       True       True\n" +
+        "  SPANS+sp[0]      n/a             True       True       True\n" +
+        "  LL-FULL+no_sp    48              True       True       True\n" +
+        "  LL-FULL+sp[0]    48              True       True       True\n" +
         "\n" +
-        "  → all five configurations produce bit-identical next-token distributions\n" +
+        "  → both LL-FULL replays hit prefix cache for all non-final prompt blocks\n" +
+        "  → all five configurations preserve text, top-1, and the top-K candidate set\n" +
         "  → in particular, gap-recompute on the LL-FULL+sp[0] path is numerically\n" +
         "    bit-identical to a cold prefill, when the span covers the whole prompt";
     }

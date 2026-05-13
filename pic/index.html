@@ -156,28 +156,28 @@
 <section id="t3" class="step">
   <div class="step-head">
     <span class="ribbon">test 3 · e2e · with warmup</span>
-    <h2>fan-in: different prefix, same chunk, cache reuse</h2>
-    <p class="claim"><code>test_same_pic_chunk_reuse_across_prefixes_e2e</code><br/>
-      Warm up a chunk alone, then run two requests with different 1-block
-      prefixes but the same chunk. Both must HIT the warmup K/V slot via
-      PIC fan-in; the two requests' prefix slots must differ (no
-      cross-prefix reuse on prefix blocks). Two requests with different prefixes but the same PIC chunk hash the
-      <em>chunk</em> identically - the <em>prefix</em> blocks differ.
+    <h2>same PIC span twice in one prompt</h2>
+    <p class="claim"><code>test_repeated_pic_span_reuse_and_gap_recompute_e2e</code><br/>
+      Warm the same 2-block PIC span, then place it twice in one prompt.
+      The first run proves both copies can be cache-reached in one request;
+      the LL-16 replay recomputes the first block of each copy, so their
+      K/V bytes should diverge because their prefixes differ.
     </p>
   </div>
 
   <div class="explainer">
     <p>
-      This is the user-visible promise of PIC: drop the same document,
-      function, or system prompt into any conversation and its KV cache
-      entry is reusable across requests. Hash collision on the chunk → cache hit.
+      This pins the in-prompt case: one prompt can fan into the same warmed
+      PIC span twice, while the cross blocks after each span keep ordinary
+      downstream text prefix-dependent. With Legolink gaps, the two copied
+      spans should no longer share identical first-block K/V after recompute.
     </p>
   </div>
 
   <div class="viz-wrap">
     <div id="viz-t3"></div>
     <div class="controls">
-      <button data-action="t3-shuffle">shuffle prefixes</button>
+      <button data-action="t3-shuffle">toggle LL-16 replay</button>
     </div>
   </div>
 </section>
@@ -261,9 +261,10 @@
       Request with <code>span_starts=[32]</code> and pin the returned
       interval to <code>[(32, 64)]</code>. <strong>End-to-end</strong> -
       run the same tokenized prompt twice through an LL-32 LLM, snapshot
-      the KV cache between runs, and bound the byte-diff: the gap can
-      recompute at most 2 prompt blocks, so the number of K/V byte-hashes
-      that change is bounded by 2 + a small decode-step budget.
+      the KV cache between runs, assert the replay reports 5 cached
+      blocks via <code>num_cached_tokens</code>, and bound the byte-diff:
+      the gap can recompute at most 2 prompt blocks, so the number of K/V
+      byte-hashes that change is bounded by 2 + a small decode-step budget.
     </p>
   </div>
 
@@ -289,9 +290,9 @@
       compared: <strong>FR</strong>, <strong>SPANS+no span_starts</strong>,
       <strong>SPANS+span_starts=[0]</strong>, <strong>LL-FULL+no span_starts</strong>,
       <strong>LL-FULL+span_starts=[0]</strong>. All five must produce
-      bit-identical text and bit-identical top-K logprobs - because none
-      of them actually does cross-prefix PIC reuse; they only exercise
-      different code paths that should all reduce to the same K/V.
+      identical text, identical top-1, and the same top-K candidate set -
+      because none of them actually does cross-prefix PIC reuse; they only
+      exercise different code paths that should all reduce to the same K/V.
     </p>
   </div>
 
@@ -303,9 +304,10 @@
       block 0's parent was already None), gap policy with no span_starts
       to fire on, and gap policy that fires but covers the entire prompt
       so the re-prefill sees the same context as a cold prefill.
-      Output text is bit-exact and the top-1 token matches; lower-rank
-      logprobs may drift by ~0.04 because the cold-prefill and gap-recompute
-      code paths are not numerically identical.
+      The LL-FULL replay paths also assert <code>num_cached_tokens == 48</code>,
+      proving the gap-policy check is happening after a real prefix-cache
+      hit. Output text and top-1 token remain exact; logprobs and lower
+      top-K ordering may drift, so the test compares the top-K candidate set.
     </p>
   </div>
 
