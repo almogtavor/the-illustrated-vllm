@@ -187,7 +187,7 @@
      ========================================================= -->
 <section id="t4" class="step">
   <div class="step-head">
-    <span class="ribbon">test 4 · structural · no recompute</span>
+    <span class="ribbon">test 4 · e2e · with warmup</span>
     <h2>PIC spans line up <em>block hashes</em> for cross-request reuse</h2>
     <p class="claim">
       <code>test_pic_chunk_warmup_then_three_requests</code> (e2e):
@@ -200,13 +200,14 @@
 
   <div class="explainer">
     <p>
-      What's tested is <em>block-hash equality</em> - the hash that the prefix
-      cache uses as a <strong>lookup index</strong> (a dictionary key, <em>not</em>
-      the attention K tensor). The K/V tensors stored under that hash are not
-      compared by this test. <code>req_A = prefix_X + chunk + suffix</code>;
+      The test snapshots the worker's KV cache (SHA-256 over each block's
+      K/V tensor bytes) between requests and also reads the engine's own
+      <code>num_cached_tokens</code> for req_B.
+      <code>req_A = prefix_X + chunk + suffix + cold_suffix</code>;
       <code>req_B</code> is byte-identical to A with a different request_id;
-      <code>req_C = prefix_Y + chunk + suffix</code> swaps the prefix.
-      Assertions check which block_hashes collide across the three.
+      <code>req_C = prefix_Y + chunk + suffix + cold_suffix</code> swaps the
+      prefix. The pin: req_B should report 7 cached blocks (chunk included),
+      req_C must not silently reuse A's tail K/V across a different prefix.
     </p>
     <p>
       <strong>Mechanism</strong> (<code>hash_block_tokens</code>,
@@ -225,7 +226,7 @@
       cache hit and silently hands req_C the tail K/V that req_A wrote,
       even though req_C's cross-attention sees a different prefix. The
       test asserts <code>|C \ A| &gt;= 5</code> (2 prefix_Y + 3 fresh tail
-      blocks); current vLLM gives <code>3</code>.
+      blocks); current vLLM gives <code>4</code>.
     </p>
   </div>
 
