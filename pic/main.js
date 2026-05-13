@@ -526,9 +526,10 @@ const T4 = (function () {
   const stateEl = document.getElementById("viz-t4-state");
   let picOn = true;
 
-  // 6 blocks: 2 prefix · 1 PIC chunk · 3 suffix
+  // 7 blocks: 2 prefix · 2 PIC chunks · 3 suffix
   const SPAN_AT_BLOCK = 2;
-  const NUM_BLOCKS = 6;
+  const CHUNK_LEN = 2;
+  const NUM_BLOCKS = 7;
 
   // helper: tag string for each (request, block) - modelling the actual hash chain
   // - prefix blocks (i < SPAN_AT_BLOCK): hash depends on prefix tokens only.
@@ -562,7 +563,7 @@ const T4 = (function () {
   }
 
   function render() {
-    const W = 980, H = 480;
+    const W = 1040, H = 480;
     const svg = svgRoot(root, W, H);
 
     // --- layout ----------------------------------------------------------
@@ -575,7 +576,8 @@ const T4 = (function () {
     // --- column headers (block tokens) ----------------------------------
     const headerY = 30;
     const colTitles = [
-      "prefix[0]", "prefix[1]", "chunk (PIC)",
+      "prefix[0]", "prefix[1]",
+      "chunk (PIC)", "chunk (PIC)",
       "suffix[0]", "suffix[1]", "suffix[2]",
     ];
     for (let i = 0; i < NUM_BLOCKS; i++) {
@@ -640,7 +642,7 @@ const T4 = (function () {
       // blocks
       for (let i = 0; i < NUM_BLOCKS; i++) {
         // is this a prefix block (its content depends on req=A/B vs C)?
-        const isPic = i === SPAN_AT_BLOCK;
+        const isPic = i >= SPAN_AT_BLOCK && i < SPAN_AT_BLOCK + CHUNK_LEN;
         const isPrefix = i < SPAN_AT_BLOCK;
         const usesPrefY = req === "C" && isPrefix;
         let kind = isPic ? "pic" : "blk";
@@ -744,7 +746,7 @@ const T4 = (function () {
       fill: picOn ? "var(--ink)" : "var(--recomp)",
     }, svg);
     t.textContent = picOn
-      ? "→ chunk + tail block hashes collide across A, B, C  ·  the cache reuses A's stored K/V bytes for those 4 lookups"
+      ? "→ chunk + tail block hashes collide across A, B, C  ·  the cache reuses A's stored K/V bytes for those 5 lookups"
       : "✗ without spans: every block downstream of the prefix change has a different hash, no cross-request reuse";
 
     // --- state readout --------------------------------------------------
@@ -773,7 +775,7 @@ const T4 = (function () {
       "  test_pic_chunk_warmup_then_three_requests\n" +
       (picOn
         ? "  step 0: warmup the chunk alone (llm.generate({prompt_token_ids: chunk}, max_tokens=1))\n" +
-          "    → cache gains 3 K/V slots (chunk + 2 decode-step blocks)\n" +
+          "    → cache gains 2 chunk K/V slots + decode-step block(s)\n" +
           "  then req_A → req_B → req_C in mode SPANS-PC:\n" +
           "    |warmup|=3 · |A|=10 · |B|=10 · |C|=13\n" +
           "    A == B   ✓ (identical prompt → full reuse)\n" +

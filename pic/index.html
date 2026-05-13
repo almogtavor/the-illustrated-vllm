@@ -190,15 +190,11 @@
     <span class="ribbon">test 4 · structural · no recompute</span>
     <h2>PIC spans line up <em>block hashes</em> for cross-request reuse</h2>
     <p class="claim">
-      Pinned by two tests:
-      <code>test_pic_spans_preserve_prefix_caching_across_requests</code>
-      (structural · no LLM · 4 hash assertions) and
-      <code>test_pic_chunk_warmup_then_three_requests</code>
-      (e2e · pre-warms just the chunk via a one-shot
-      <code>llm.generate({prompt_token_ids: chunk}, max_tokens=1)</code>,
-      then runs req_A / req_B / req_C and verifies the warmup slot survives
-      every request and that req_C only adds prefix_Y blocks - i.e. chunk +
-      tail bytes are reused across A and C, not recomputed).
+      <code>test_pic_chunk_warmup_then_three_requests</code> (e2e):
+      pre-warm the PIC chunk, then run req_A / req_B / req_C and check
+      that the warmup slot(s) survive every request, B fully reuses A,
+      and req_C only adds the prefix_Y blocks - chunk bytes are reused
+      across A and C.
     </p>
   </div>
 
@@ -223,17 +219,13 @@
       <code>chunk + tail</code> are byte-equal.
     </p>
     <p class="callout">
-      <strong>The e2e half of this test currently FAILS by design.</strong>
-      Only the chunk block is marked PIC; tail blocks inherit a fan-in hash
+      <strong>This test currently FAILS by design.</strong>
+      Only the chunk is marked PIC; tail blocks inherit a fan-in hash
       because they chain through the chunk's hash. vLLM treats that as a
-      cache hit and silently hands req_C the tail K/V that req_A wrote, even
-      though req_C's actual cross-attention sees a different prefix. The
-      structural half (block-hash equality) still passes - the bug is in the
-      cache lookup, not the hash machinery. The test asserts
-      <code>|C \ A| &gt;= 5</code> (2 prefix_Y + 3 fresh tail blocks); current
-      vLLM gives <code>3</code>. Fix path: cut the hash chain at every block
-      (not just at PIC span_starts) <em>or</em> force gap-policy recompute
-      over tail blocks on cross-prefix cache hits.
+      cache hit and silently hands req_C the tail K/V that req_A wrote,
+      even though req_C's cross-attention sees a different prefix. The
+      test asserts <code>|C \ A| &gt;= 5</code> (2 prefix_Y + 3 fresh tail
+      blocks); current vLLM gives <code>3</code>.
     </p>
   </div>
 
